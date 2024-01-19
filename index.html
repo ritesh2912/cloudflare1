@@ -1,0 +1,97 @@
+import requests
+import time
+
+# Replace with your Cloudflare API token and account ID
+api_token = "1Vd6safq0aqpoVOiAEf8JDrvF-UAPhTwuI_XP2zH"
+account_id = "8d9e8a787ac78dde43a1e2542346042c"
+
+# Cloudflare Pages endpoint
+pages_endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects"
+
+# Application data
+application_data = {
+    "name": "mycloudflarepagesapp",
+    "files": [
+        {
+            "file": "D:\\templates\\templates\\index.html",  # Replace with the path to your HTML file
+        },
+    ],
+    "production_branch": "main",  # Set a dummy production branch
+}
+
+# Headers with Cloudflare API token
+headers = {
+    "Authorization": f"Bearer {api_token}",
+    "Content-Type": "application/json",
+}
+
+# Sample HTML content
+html_content = """
+Hello, Cloudflare Pages!
+This is a sample HTML content for your Cloudflare Pages application.
+"""
+
+try:
+    # Write HTML content to the specified file
+    with open(application_data["files"][0]["file"], "w", encoding="utf-8") as html_file:
+        html_file.write(html_content)
+    print(f"HTML file '{application_data['files'][0]['file']}' created successfully.")
+
+    # Make a POST request to create the Cloudflare Page application
+    response = requests.post(pages_endpoint, json=application_data, headers=headers)
+
+    # Check the response
+    if response.ok:
+        print("Cloudflare Page application created successfully.")
+
+        # Extract the project name from the response
+        project_name = response.json().get("result", {}).get("name")
+
+        # Wait for the project to be ready before triggering deployment
+        readiness_check_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects/{project_name}"
+        max_wait_time = 60  # seconds
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait_time:
+            readiness_check_response = requests.get(readiness_check_url, headers=headers)
+
+            if readiness_check_response.ok:
+                print("Project is ready. Triggering deployment.")
+                break
+            else:
+                print("Waiting for project readiness...")
+                time.sleep(5)  # Wait for 5 seconds before checking again
+        else:
+            print("Max wait time reached. Exiting without triggering deployment.")
+
+        # Trigger a deployment for the project
+        deployment_endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/pages/projects/{project_name}/deployments"
+        max_retries = 3
+
+        for attempt in range(1, max_retries + 1):
+            deployment_response = requests.post(deployment_endpoint, headers=headers)
+
+            if deployment_response.ok:
+                print("Deployment triggered successfully.")
+                break
+            else:
+                print(f"Failed to trigger deployment (attempt {attempt}/{max_retries}). Status code: {deployment_response.status_code}")
+                print("Response content:", deployment_response.text)  # Print the response content for debugging
+                time.sleep(5)  # Wait for 5 seconds before retrying
+
+            if attempt == max_retries:
+                print("Max retries reached. Failed to trigger deployment.")
+
+    else:
+        print(f"Failed to create Cloudflare Page application. Status code: {response.status_code}")
+
+        try:
+            error_details = response.json()
+            print("Error details:", error_details)
+        except requests.exceptions.JSONDecodeError:
+            pass  
+
+except requests.RequestException as e:
+    print(f"Request error: {str(e)}")
+except Exception as e:
+    print(f"An unexpected error occurred: {str(e)}")
